@@ -5,118 +5,118 @@
 //! that come from the pallet's configuration trait.
 
 use frame_support::{
-	codec::{Decode, Encode},
-	decl_event, decl_module, decl_storage,
+	decl_error, 
+	decl_event, 
+	decl_module, 
+	decl_storage, 
+	ensure, 
 	dispatch::DispatchResult,
 };
-use frame_system::{self as system, ensure_signed};
 use sp_runtime::RuntimeDebug;
+use frame_system::{
+	self as system, 
+	ensure_signed,
+	ensure_root
+};
+use parity_scale_codec::{
+	Decode, 
+	Encode
+};
 use sp_std::prelude::*;
 
 
 #[cfg(test)]
 mod tests;
 
-pub trait Trait: balances::Trait + system::Trait {
+pub trait Trait: system::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
+type AccountIdOf<T> = <T as system::Trait>::AccountId;
+type ReferenceOf<T> = Reference<AccountIdOf<T>, <T as system::Trait>::BlockNumber>;
+
 #[derive(Encode, Decode, Clone, Default, RuntimeDebug)]
-pub struct InnerThing<Hash, Balance> {
-	kata: Vec<u8>,
-	number: u32,
-	hash: Hash,
-	balance: Balance,
+pub struct Reference<AccountId, BlockNumber> {
+	user: AccountId,
+	promoter: AccountId,
+	when: BlockNumber
+
 }
 
-type InnerThingOf<T> = InnerThing<<T as system::Trait>::Hash, <T as balances::Trait>::Balance>;
-
-#[derive(Encode, Decode, Default, RuntimeDebug)]
-pub struct SuperThing<Hash, Balance> {
-	super_number: u32,
-	inner_thing: InnerThing<Hash, Balance>,
-}
 
 decl_storage! {
-	trait Store for Module<T: Trait> as NestedStructs {
-		InnerThingsByNumbers get(fn inner_things_by_numbers):
-			map hasher(blake2_128_concat) u32 => InnerThingOf<T>;
-		SuperThingsBySuperNumbers get(fn super_things_by_super_numbers):
-			map hasher(blake2_128_concat) u32 => SuperThing<T::Hash, T::Balance>;
+	trait Store for Module<T: Trait> as ReferralStore {
+		Promoter get(fn promoter): map hasher(blake2_128_concat) Vec<u8> => AccountIdOf<T>;
+		PromoterCode get(fn promoter_code): map hasher(blake2_128_concat) AccountIdOf<T>=> Vec<u8>;
+		Registered get(fn registered): map hasher(blake2_128_concat) AccountIdOf<T> => bool;
+		References get(fn references): map hasher(blake2_128_concat) (AccountIdOf<T>, u8) => Option<ReferenceOf<T>>;
+		ReferenceCount get(fn reference_count): map hasher(blake2_128_concat) AccountIdOf<T> => u8;
 	}
 }
 
-decl_event! (
+
+decl_event! {
 	pub enum Event<T>
 	where
-		<T as system::Trait>::Hash,
-		<T as balances::Trait>::Balance
+	AccountId = <T as system::Trait>::AccountId,
 	{
-		// fields of the new inner thing
-		NewInnerThing(u32, Hash, Balance),
-		// fields of the super_number and the inner_thing fields
-		NewSuperThingByExistingInner(u32, u32, Hash, Balance),
-		// ""
-		NewSuperThingByNewInner(u32, u32, Hash, Balance),
+		/// Promoter created. \[account_id, code\]
+		NewPromoter(AccountId, Vec<u8>),
+		/// User created. \[promoter, user\]
+		NewUser(AccountId, AccountId),		
 	}
-);
+}
+
+decl_error! {
+	pub enum Error for Module<T: Trait> {
+		/// LOL
+		UserAlreadyRegistered		
+	}
+}
+
 
 decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 		fn deposit_event() = default;
 
-		/// Stores an `InnerThing` struct in the storage map
+		type Error = Error<T>;	
+
 		#[weight = 10_000]
-		fn insert_inner_thing(origin, kata: Vec<u8>, number: u32, hash: T::Hash, balance: T::Balance) -> DispatchResult {
-			let _ = ensure_signed(origin)?;
-			let thing = InnerThing {
-							kata,
-							number,
-							hash,
-							balance,
-						};
-			<InnerThingsByNumbers<T>>::insert(number, thing);
-			Self::deposit_event(RawEvent::NewInnerThing(number, hash, balance));
+		fn register_from_code(origin, code: Vec<u8>) -> DispatchResult {
+			
+			let caller = ensure_signed(origin)?;
+			let is_caller_registered: bool = <Registered<T>>::get(&caller);
+			ensure!(is_caller_registered == false, Error::<T>::UserAlreadyRegistered );
+			let promoter = <Promoter<T>>::get(code);
+			let when = <system::Module<T>>::block_number();
+
+			<Registered<T>>::insert(&caller, true);
+			let index = <ReferenceCount<T>>::get(&caller);
+
+			let thing: ReferenceOf<T> = Reference {
+				user: caller.clone(),
+				promoter: promoter.clone(),
+				when: when
+			};
+			<References<T>>::insert((caller.clone(), index), thing);
+			<ReferenceCount<T>>::insert(caller.clone(), index + 1);
+			
+			Self::deposit_event(RawEvent::NewUser(promoter.clone(), caller.clone()));
+			
 			Ok(())
 		}
 
-		/// Stores a `SuperThing` struct in the storage map using an `InnerThing` that was already
-		/// stored
 		#[weight = 10_000]
-		fn insert_super_thing_with_existing_inner(origin, inner_number: u32, super_number: u32) -> DispatchResult {
-			let _ = ensure_signed(origin)?;
-			let inner_thing = Self::inner_things_by_numbers(inner_number);
-			let super_thing = SuperThing {
-				super_number,
-				inner_thing: inner_thing.clone(),
-			};
-			<SuperThingsBySuperNumbers<T>>::insert(super_number, super_thing);
-			Self::deposit_event(RawEvent::NewSuperThingByExistingInner(super_number, inner_thing.number, inner_thing.hash, inner_thing.balance));
-			Ok(())
-		}
+		fn set_promoter(origin, account: AccountIdOf<T>, code: Vec<u8>) -> DispatchResult {
+			
+			let caller = ensure_signed(origin.clone())?;
 
-		/// Stores a `SuperThing` struct in the storage map using a new `InnerThing`
-		#[weight = 10_000]
-		fn insert_super_thing_with_new_inner(origin, kata: Vec<u8>, inner_number: u32, hash: T::Hash, balance: T::Balance, super_number: u32) -> DispatchResult {
-			let _ = ensure_signed(origin)?;
-			// construct and insert `inner_thing` first
-			let inner_thing = InnerThing {
-				kata,
-				number: inner_number,
-				hash,
-				balance,
-			};
-			// overwrites any existing `InnerThing` with `number: inner_number` by default
-			<InnerThingsByNumbers<T>>::insert(inner_number, inner_thing.clone());
-			Self::deposit_event(RawEvent::NewInnerThing(inner_number, hash, balance));
-			// now construct and insert `super_thing`
-			let super_thing = SuperThing {
-				super_number,
-				inner_thing,
-			};
-			<SuperThingsBySuperNumbers<T>>::insert(super_number, super_thing);
-			Self::deposit_event(RawEvent::NewSuperThingByNewInner(super_number, inner_number, hash, balance));
+			<Promoter<T>>::insert(code.clone(), account.clone());
+			<PromoterCode<T>>::insert(account.clone(), code.clone());
+			
+			Self::deposit_event(RawEvent::NewPromoter(account, code.clone()));			
+			
 			Ok(())
-		}
+		}		
 	}
 }
