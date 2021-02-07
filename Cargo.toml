@@ -2,12 +2,11 @@
 authors = ['DCB <https://github.com/DCBPlatform>']
 description = 'DCB Referral Pallet'
 edition = '2018'
-homepage = 'https://substrate.dev'
+homepage = 'https://dcb.my'
 license = 'GPL3'
 name = 'pallet-referral'
 repository = 'https://github.com/DCBPlatform/pallet-referral/'
 version = '2.0.0'
-
 
 [package.metadata.docs.rs]
 targets = ['x86_64-unknown-linux-gnu']
