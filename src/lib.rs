@@ -16,7 +16,7 @@ use sp_runtime::RuntimeDebug;
 use frame_system::{
 	self as system, 
 	ensure_signed,
-	ensure_root
+	//ensure_root
 };
 use parity_scale_codec::{
 	Decode, 
@@ -60,16 +60,15 @@ decl_event! {
 	where
 	AccountId = <T as system::Trait>::AccountId,
 	{
-		/// Promoter created. \[account_id, code\]
+		/// Promoter created. \[Promoter Account ID, Code\]
 		NewPromoter(AccountId, Vec<u8>),
-		/// User created. \[promoter, user\]
+		/// User created. \[Promoter Account ID, User Account ID\]
 		NewUser(AccountId, AccountId),		
 	}
 }
 
 decl_error! {
 	pub enum Error for Module<T: Trait> {
-		/// LOL
 		UserAlreadyRegistered		
 	}
 }
@@ -82,7 +81,7 @@ decl_module! {
 		type Error = Error<T>;	
 
 		#[weight = 10_000]
-		fn register_from_code(origin, code: Vec<u8>) -> DispatchResult {
+		fn register_code(origin, code: Vec<u8>) -> DispatchResult {
 			
 			let caller = ensure_signed(origin)?;
 			let is_caller_registered: bool = <Registered<T>>::get(&caller);
@@ -107,9 +106,9 @@ decl_module! {
 		}
 
 		#[weight = 10_000]
-		fn set_promoter(origin, account: AccountIdOf<T>, code: Vec<u8>) -> DispatchResult {
+		fn set_code(origin, account: AccountIdOf<T>, code: Vec<u8>) -> DispatchResult {
 			
-			let caller = ensure_signed(origin.clone())?;
+			let _ = ensure_signed(origin.clone())?;
 
 			<Promoter<T>>::insert(code.clone(), account.clone());
 			<PromoterCode<T>>::insert(account.clone(), code.clone());
@@ -117,6 +116,7 @@ decl_module! {
 			Self::deposit_event(RawEvent::NewPromoter(account, code.clone()));			
 			
 			Ok(())
-		}		
+		}	
+
 	}
 }
